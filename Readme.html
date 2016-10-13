@@ -1,0 +1,108 @@
+<h1>cuTranspose: a library to transpose 3D arrays in Nvidia CUDA GPUs</h1>
+
+<p>cuTranspose is a library to transpose 3D arrays in Nvidia CUDA GPUs.
+It is written in CUDA C and all its functionality is exposed through C functions.
+The library is based on the transpositions described in <a href="http://link.springer.com/article/10.1007/s10766-015-0366-5">this article</a>: Jose L. Jodra, Ibai Gurrutxaga and Javier Muguerza. "Efficient 3D Transpositions in Graphics Processing Units" International Journal of Parallel Programming, 43:4, pp. 876-891, 2015.
+Please cite us in your publications if you use cuTranspose.</p>
+
+<p>The last version of the library is located at <a href="http://www.aldapa.eus/res/cuTranspose/">http://www.aldapa.eus/res/cuTranspose/</a>.</p>
+
+<p>This document shows how to build and use this library.</p>
+
+<h2>Index</h2>
+
+<ul>
+<li><a href="#installation">Installation</a></li>
+<li><a href="#usage">Using the library</a></li>
+<li><a href="#license">Copyright license</a></li>
+</ul>
+
+<h2><a name="installation"></a>Installation</h2>
+
+<p>To build this library you will need the <a href="https://developer.nvidia.com/cuda-downloads">Nvidia CUDA SDK</a> and the <a href="https://cmake.org/">CMAKE builiding system</a> installed.
+You have to specify the build configuration through CMake.
+The most important configuration elements are:</p>
+
+<ul>
+<li>Build type (<strong>CMAKE_BUILD_TYPE</strong>): It should be set to <em>Release</em> unless you want to debug the project, in which case it should be set to <em>Debug</em>.</li>
+<li>Floating point precision (<strong>CUT_SINGLE_PRECISION</strong>): Set it to <em>ON</em> if you want to build the library to use it with single precision floating points instead of with double precision floating points.
+We are working on a version that will include different functions for different data types, but it is not ready.</li>
+<li>Use complex numbers (<strong>CUT_USE_COMPLEX</strong>): Set it to <em>ON</em> if you want to build the library to use it with complex numbers instead of real numbers.
+In this case the C standard library complex.h is used to define the data in the array.</li>
+<li>The tile size (<strong>CUT_TILE_SIZE</strong>): Set the tile size used in the transposition kernels. Don't change it unless you know what you are doing.</li>
+<li>The brick size (<strong>CUT_BRICK_SIZE</strong>): Set the brick size used in the transposition kernels. Don't change it unless you know what you are doing.</li>
+</ul>
+
+<p>We recommend NOT to build the library in the source code tree, so you should create a new folder.
+For example, you can type the following commands in a linux system:</p>
+
+<pre><code>mkdir build
+cd build
+ccmake ..
+make
+</code></pre>
+
+<p>This commands build the code and create 3 files for you in the build folder.</p>
+
+<ul>
+<li><strong>libcuTranspose.a</strong>: The library compiled code. Link yout code to this library.</li>
+<li><strong>cutranspose.h</strong>: The header you must include in your source files that call to the library functions.</li>
+<li><strong>cutttest</strong>: A test program that you can use to test the library.</li>
+</ul>
+
+<h2><a name="usage"></a>Using the library</h2>
+
+<p>The library has a single C function that allows performing every kind of 3D transpositions.
+This transpositions are named <em>xzy</em>, <em>yxz</em>, <em>yzx</em>, <em>zxy</em> and <em>zyx</em>.
+As an example, let's define <em>A</em>, a 3D array of size <em>nx</em>*<em>ny</em>*<em>nz</em> points.
+The element <em>A(i,j,k)</em> will be in position <em>(i + j*nx + k*nx*ny)</em>.
+If we perform a <em>yzx</em> transposition, the size of the transposed array, <em>A'</em>, will be <em>ny</em>*<em>nz</em>*<em>nx</em>, the previously mentioned element will be stored in <em>A'(j,k,i)</em> and its new offset will be <em>(j + k*ny + i*ny*nz)</em>.
+For more information see the article mentioned in the introduction.</p>
+
+<p>The function that performs the 3D transposition is named <strong>cut_transpose3d</strong> and its prototype is</p>
+
+<pre><code>int cut_transpose3d( data_t*       output,
+                     const data_t* input,
+                     const int*    size,
+                     const int*    permutation,
+                     int           elements_per_thread )
+</code></pre>
+
+<p>The return value is 0 for a successful execution and -1 otherwise. The meaning of each parameter is explained below:</p>
+
+<ul>
+<li><strong>output</strong>: A pointer to an allocated GPU memory space where the transposed array will be stored.
+The data type (<em>data_t</em>) is automatically set to the type defined in the build configuration: float or double, real or complex.</li>
+<li><strong>input</strong>: A pointer to GPU memory where the array that must be transposed is stored.
+If this parameter is equal to the <strong>output</strong> parameter an in-place transposition is performed.
+Otherwise, both parameters must not overlap.</li>
+<li><strong>size</strong>: A 3 element vector with the number of points of the original array in each dimension.
+Remind that the first value must correspond to the innermost dimension.</li>
+<li><strong>permutation</strong>: Specifies the particular transpose to be performed.
+It must be a 3 integer vector with a permutation of 0, 1 and 2.
+The 0, 1 and 2 values represent the <em>x</em>, <em>y</em> and <em>z</em> axis, respectively.
+Even the {0,1,2} vector is allowed, which performs a simple data copy.</li>
+<li><strong>elements_per_thread</strong>: An integer that specifies how many elements are transposed by each GPU thread.
+Its value must be 1, 2 or 4 and only applies to out-of-place transpositions, so it will be ignored for in-place transpositions.
+Since this value can affect the transposition's performance you could try all of the 3 values and measure which of them leads to the best results for your particular GPU architecture.
+2 have shown to be a sensible default value.</li>
+</ul>
+
+<h2><a name="license"></a>Copyright license</h2>
+
+<p>cuTranspose is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.</p>
+
+<p>cuTranspose is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.</p>
+
+<p>You should have received a copy of the GNU Lesser General Public License
+along with cuTranspose. If not, see <a href="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</a>.</p>
+
+<p>Copyright 2016 Ibai Gurrutxaga, Javier Muguerza, Jose L. Jodra.</p>
+
+<p>You can contact the authors at <a href="&#109;&#x61;i&#108;&#x74;o:&#105;&#x2E;&#103;&#117;&#x72;&#114;&#x75;&#116;&#x78;&#97;&#x67;&#97;&#64;&#x65;&#x68;u&#46;&#x65;&#117;&#115;">&#105;&#x2E;&#103;&#117;&#x72;&#114;&#x75;&#116;&#x78;&#97;&#x67;&#97;&#64;&#x65;&#x68;u&#46;&#x65;&#117;&#115;</a>, <a href="&#x6D;&#x61;&#x69;&#108;&#x74;&#x6F;:&#x6A;&#x2E;&#109;&#x75;&#x67;&#x75;&#101;&#x72;&#x7A;&#x61;&#64;&#101;&#x68;&#117;&#46;&#101;&#x75;&#115;">&#x6A;&#x2E;&#109;&#x75;&#x67;&#x75;&#101;&#x72;&#x7A;&#x61;&#64;&#101;&#x68;&#117;&#46;&#101;&#x75;&#115;</a> and <a href="&#x6D;&#97;&#x69;&#x6C;&#116;&#111;:&#106;&#x6F;&#x73;&#x65;&#108;&#x75;&#105;&#115;&#46;&#x6A;&#x6F;&#100;r&#x61;&#64;&#101;&#104;&#117;&#46;&#101;u&#115;">&#106;&#x6F;&#x73;&#x65;&#108;&#x75;&#105;&#115;&#46;&#x6A;&#x6F;&#100;r&#x61;&#64;&#101;&#104;&#117;&#46;&#101;u&#115;</a>.</p>

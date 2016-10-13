@@ -1,0 +1,43 @@
+#ifndef CUTRANSPOSE_H_
+#define CUTRANSPOSE_H_
+
+#cmakedefine USE_COMPLEX
+#cmakedefine FLOAT
+#define TILE_SIZE @CUT_TILE_SIZE@
+#define BRICK_SIZE @CUT_BRICK_SIZE@ 
+
+#ifdef USE_COMPLEX
+#include <complex.h>
+#endif
+
+/********************************************
+ * Public function prototypes               *
+ ********************************************/
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+#ifdef FLOAT
+#define real float
+#else
+#define real double
+#endif
+
+
+#ifdef USE_COMPLEX
+typedef real _Complex data_t;
+#else
+typedef real data_t;
+#endif
+
+int cut_transpose3d( data_t*       output,
+                     const data_t* input,
+                     const int*    size,
+                     const int*    permutation,
+                     int           elements_per_thread );
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* CUTRANSPOSE_H_ */
