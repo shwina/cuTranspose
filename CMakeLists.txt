@@ -22,8 +22,8 @@ find_package( CUDA REQUIRED )
 
 set( LIB_NAME "cuTranspose" )
 
-option( CUT_USE_COMPLEX "Use double complex data." ON )
-option( CUT_SINGLE_PRECISION "Use single precision real numbers." OFF )
+option( CUT_USE_COMPLEX "Use double complex data." OFF )
+option( CUT_SINGLE_PRECISION "Use single precision real numbers." ON )
 set( CUT_TILE_SIZE 16 CACHE STRING "The tile size." )
 set( CUT_BRICK_SIZE 8 CACHE STRING "The brick size." )
 
