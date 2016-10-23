@@ -19,20 +19,18 @@
 /********************************************
  * Includes                                 *
  ********************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "cutranspose.h"
 #include "kernels_012.h"
-#include "kernels_021.h"
 #include "kernels_102.h"
+#include "kernels_021.h"
 #include "kernels_120.h"
 #include "kernels_201.h"
 #include "kernels_210.h"
 
-/********************************************
- * Private function prototypes              *
- ********************************************/
 static void set_grid_dims( const int* size,
                            int        d2,
                            dim3*      block_size,
@@ -374,4 +372,1182 @@ static int valid_parameters( int        in_place,
 	}
 
 	return 1;
+}
+
+/********************************************
+ * Public functions                         *
+ ********************************************/
+__global__
+void dev_copy( data_t*       out,
+               const data_t* in,
+               int           np0,
+               int           np1,
+               int           elements_per_thread )
+{
+	int x, y, z,
+	    ind,
+	    i;
+
+	x = threadIdx.x + TILE_SIZE * blockIdx.x;
+	y = threadIdx.y + TILE_SIZE * blockIdx.y;
+	z = blockIdx.z;
+
+	if( x >= np0 || y >= np1 )
+		return;
+
+	ind = x + (y + z * np1) * np0;
+
+	for( i = 0;
+	     i < TILE_SIZE && y + i < np1;
+	     i += TILE_SIZE / elements_per_thread )
+	{
+		out[ind + i*np0] = in[ind + i*np0];
+	}
+}
+
+__global__
+void dev_transpose_021_ept1( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x, y, z,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x = lx + TILE_SIZE * bx;
+	y = ly + TILE_SIZE * by;
+	z = blockIdx.z;
+
+	ind_in = x + (y + z * np1) * np0;
+	ind_out = x + (z + y * np2) * np0;
+
+	if( x < np0 && y < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+	}
+
+	__syncthreads();
+
+	if( x < np0 && y < np1	 )
+	{
+		out[ind_out] = tile[lx][ly];
+	}
+}
+
+__global__
+void dev_transpose_021_ept2( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x, y, z,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x = lx + TILE_SIZE * bx;
+	y = ly + TILE_SIZE * by;
+	z = blockIdx.z;
+
+	ind_in = x + (y + z * np1) * np0;
+	ind_out = x + (z + y * np2) * np0;
+
+	if( x < np0 && y < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( y + 8 < np1 )
+		{
+			tile[lx][ly +  8] = in[ind_in +  8*np0];
+		}
+	}
+
+	__syncthreads();
+
+	if( x < np0 && y < np1 )
+	{
+		out[ind_out] = tile[lx][ly];
+		if( y + 8 < np1 )
+		{
+			out[ind_out +  8*np0*np2] = tile[lx][ly + 8];
+		}
+	}
+}
+
+__global__
+void dev_transpose_021_ept4( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x, y, z,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x = lx + TILE_SIZE * bx;
+	y = ly + TILE_SIZE * by;
+	z = blockIdx.z;
+
+	ind_in = x + (y + z * np1) * np0;
+	ind_out = x + (z + y * np2) * np0;
+
+	if( x < np0 && y < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( y + 4 < np1 )
+		{
+			tile[lx][ly +  4] = in[ind_in +  4*np0];
+			if( y + 8 < np1 )
+			{
+				tile[lx][ly +  8] = in[ind_in +  8*np0];
+				if( y + 12 < np1 )
+				{
+					tile[lx][ly +  12] = in[ind_in +  12*np0];
+				}
+			}
+		}
+	}
+
+	__syncthreads();
+
+	if( x < np0 && y < np1 )
+	{
+		out[ind_out] = tile[lx][ly];
+		if( y + 4 < np1 )
+		{
+			out[ind_out +  4*np0*np2] = tile[lx][ly + 4];
+			if( y + 8 < np1 )
+			{
+				out[ind_out +  8*np0*np2] = tile[lx][ly + 8];
+				if( y + 12 < np1 )
+				{
+					out[ind_out +  12*np0*np2] = tile[lx][ly + 12];
+				}
+			}
+		}
+	}
+}
+
+__global__
+void dev_transpose_021_in_place( data_t* data,
+                                 int     np0,
+                                 int     np1 )
+{
+	__shared__ data_t inf_tile[TILE_SIZE][TILE_SIZE + 1];
+	__shared__ data_t sup_tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x, y, z,
+	    ind_inf,
+	    ind_sup;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	z = blockIdx.z;
+	y = ly + TILE_SIZE * by;
+
+	if( z > y ) // Thread in diagonal or upper triangle
+		return;
+
+	x = lx + TILE_SIZE * bx;
+
+	if( x < np0 && y < np1 )
+	{
+		ind_inf = x + (y + z * np1) * np0;
+		ind_sup = x + (z + y * np1) * np0;
+		inf_tile[lx][ly] = data[ind_inf];
+		sup_tile[lx][ly] = data[ind_sup];
+	}
+
+	__syncthreads();
+
+	if( x < np0 && y < np1 )
+	{
+		data[ind_sup] = inf_tile[lx][ly];
+		data[ind_inf] = sup_tile[lx][ly];
+	}
+}
+
+ __global__
+ void dev_transpose_102_ept1( data_t*       out,
+                              const data_t* in,
+                              int           np0,
+                              int           np1,
+                              int           np2 )
+{
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y_in, z,
+	    x_out, y_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	y_in = ly + TILE_SIZE * by;
+
+	z = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	y_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y_in + z * np1) * np0;
+	ind_out = y_out + (x_out + z * np0) * np1;
+
+	if( x_in < np0 && y_in < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+	}
+
+	__syncthreads();
+
+	if( x_out < np0 && y_out < np1 )
+	{
+		out[ind_out] = tile[ly][lx];
+	}
+}
+
+/**
+ * Kernel that performs a 1,0,2 transpose (order inversion) out of place.
+ *
+ * The grid of threads must be a 3-dimensional grid of 2-dimensional blocks.
+ * The x dimension must match the innermost dimension of the input grid, and
+ * the y dimension must match the innermost dimension of the transposed grid.
+ * \param [out] out The output array.
+ * \param [in] in The input array.
+ * \param [in] np0 The size of the first dimension of the input array.
+ * \param [in] np1 The size of the second dimension of the input array.
+ * \param [in] np2 The size of the third dimension of the input array.
+ */
+__global__
+void dev_transpose_102_ept2( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y_in, z,
+	    x_out, y_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	y_in = ly + TILE_SIZE * by;
+
+	z = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	y_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y_in + z * np1) * np0;
+	ind_out = y_out + (x_out + z * np0) * np1;
+
+	if( x_in < np0 && y_in < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( y_in + 8 < np1 )
+		{
+			tile[lx][ly +  8] = in[ind_in +  8*np0];
+		}
+	}
+
+	__syncthreads();
+
+	if( x_out < np0 && y_out < np1 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 8 < np0 )
+		{
+			out[ind_out +  8*np1] = tile[ly + 8][lx];
+		}
+	}
+}
+
+/**
+ * Kernel that performs a 1,0,2 transpose (order inversion) out of place.
+ *
+ * The grid of threads must be a 3-dimensional grid of 2-dimensional blocks.
+ * The x dimension must match the innermost dimension of the input grid, and
+ * the y dimension must match the innermost dimension of the transposed grid.
+ * \param [out] out The output array.
+ * \param [in] in The input array.
+ * \param [in] np0 The size of the first dimension of the input array.
+ * \param [in] np1 The size of the second dimension of the input array.
+ * \param [in] np2 The size of the third dimension of the input array.
+ */
+__global__
+void dev_transpose_102_ept4( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y_in, z,
+	    x_out, y_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	y_in = ly + TILE_SIZE * by;
+
+	z = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	y_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y_in + z * np1) * np0;
+	ind_out = y_out + (x_out + z * np0) * np1;
+
+	if( x_in < np0 && y_in < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( y_in + 4 < np1 )
+		{
+			tile[lx][ly +  4] = in[ind_in +  4*np0];
+			if( y_in + 8 < np1 )
+			{
+				tile[lx][ly +  8] = in[ind_in +  8*np0];
+				if( y_in + 12 < np1 )
+				{
+					tile[lx][ly +  12] = in[ind_in +  12*np0];
+				}
+			}
+		}
+	}
+
+	__syncthreads();
+
+	if( x_out < np0 && y_out < np1 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 4 < np0 )
+		{
+			out[ind_out +  4*np1] = tile[ly + 4][lx];
+			if( x_out + 8 < np0 )
+			{
+				out[ind_out +  8*np1] = tile[ly + 8][lx];
+				if( x_out + 12 < np0 )
+				{
+					out[ind_out +  12*np1] = tile[ly + 12][lx];
+				}
+			}
+		}
+	}
+}
+
+/**
+ * Kernel that performs a 1,0,2 transpose (order inversion) in place.
+ *
+ * The grid of threads must be a 3-dimensional grid of 2-dimensional blocks.
+ * The x dimension must match the innermost dimension of the input grid, and
+ * the y dimension must match the innermost dimension of the transposed grid.
+ * \param [in, out] in The data array.
+ * \param [in] np0 The size of the first and last dimensions of the input array.
+ * \param [in] np2 The size of the third dimension of the input array.
+ */
+__global__
+void dev_transpose_102_in_place( data_t* data,
+                                 int     np0,
+                                 int     np2 )
+{
+	__shared__ data_t inf_tile[TILE_SIZE][TILE_SIZE + 1];
+	__shared__ data_t sup_tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_inf, y_inf, z,
+	    x_sup, y_sup,
+	    ind_inf,
+	    ind_sup;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	if( bx > by ) // Block in upper triangle
+		return;
+
+	x_inf = lx + TILE_SIZE * bx;
+	y_inf = ly + TILE_SIZE * by;
+	z = blockIdx.z;
+
+	if( x_inf < np0 && y_inf < np0 )
+	{
+		ind_inf = x_inf + (y_inf + z * np0) * np0;
+		inf_tile[lx][ly] = data[ind_inf];
+	}
+
+	x_sup = ly + TILE_SIZE * bx;
+	y_sup = lx + TILE_SIZE * by;
+	if( bx < by ) // Block in lower triangle
+	{
+		if( x_sup < np0 && y_sup < np0 )
+		{
+			ind_sup = y_sup + (x_sup + z * np0) * np0;
+			sup_tile[lx][ly] = data[ind_sup];
+		}
+	}
+	else // Block in diagonal
+		ind_sup = ind_inf;
+
+	__syncthreads();
+
+	if( x_sup < np0 && y_sup < np0 )
+	{
+		data[ind_sup] = inf_tile[ly][lx];
+	}
+
+	if( bx < by )
+	{
+		if( x_inf < np0 && y_inf < np0 )
+		{
+			data[ind_inf] = sup_tile[ly][lx];
+		}
+	}
+}
+__global__
+void dev_transpose_120_ept1( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y_in, z,
+	    x_out, y_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	y_in = ly + TILE_SIZE * by;
+
+	z = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	y_out = lx + TILE_SIZE * by;
+
+	ind_in = x_in + (y_in + z * np1) * np0;
+	ind_out = y_out + (z + x_out * np2) * np1;
+
+	if( x_in < np0 && y_in < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+	}
+
+	__syncthreads();
+
+	if( y_out < np1 && x_out < np0 )
+	{
+		out[ind_out] = tile[ly][lx];
+	}
+}
+
+__global__
+void dev_transpose_120_ept2( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y_in, z,
+	    x_out, y_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	y_in = ly + TILE_SIZE * by;
+
+	z = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	y_out = lx + TILE_SIZE * by;
+
+	ind_in = x_in + (y_in + z * np1) * np0;
+	ind_out = y_out + (z + x_out * np2) * np1;
+
+	if( x_in < np0 && y_in < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( y_in + 8 < np1 )
+		{
+			tile[lx][ly +  8] = in[ind_in +  8*np0];
+		}
+	}
+
+	__syncthreads();
+
+	if( y_out < np1 && x_out < np0 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 8 < np0 )
+		{
+			out[ind_out +  8*np1*np2] = tile[ly + 8][lx];
+		}
+	}
+
+}
+
+__global__
+void dev_transpose_120_ept4( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y_in, z,
+	    x_out, y_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	y_in = ly + TILE_SIZE * by;
+
+	z = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	y_out = lx + TILE_SIZE * by;
+
+	ind_in = x_in + (y_in + z * np1) * np0;
+	ind_out = y_out + (z + x_out * np2) * np1;
+
+	if( x_in < np0 && y_in < np1 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( y_in + 4 < np1 )
+		{
+			tile[lx][ly +  4] = in[ind_in +  4*np0];
+			if( y_in + 8 < np1 )
+			{
+				tile[lx][ly +  8] = in[ind_in +  8*np0];
+				if( y_in + 12 < np1 )
+				{
+					tile[lx][ly +  12] = in[ind_in +  12*np0];
+				}
+			}
+		}
+	}
+
+	__syncthreads();
+
+	if( y_out < np1 && x_out < np0 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 4 < np0 )
+		{
+			out[ind_out +  4*np1*np2] = tile[ly + 4][lx];
+			if( x_out + 8 < np0 )
+			{
+				out[ind_out +  8*np1*np2] = tile[ly + 8][lx];
+				if( x_out + 12 < np0 )
+				{
+					out[ind_out +  12*np1*np2] = tile[ly + 12][lx];
+				}
+			}
+		}
+	}
+}
+
+__global__
+void dev_transpose_120_in_place( data_t* data,
+                                 int     np0 )
+{
+	__shared__ data_t cube13[BRICK_SIZE][BRICK_SIZE][BRICK_SIZE + 1];
+	__shared__ data_t cube2[BRICK_SIZE][BRICK_SIZE][BRICK_SIZE + 1];
+
+	int x1, y1, z1,
+	    x2, y2, z2,
+	    x3, y3, z3,
+	    ind1, ind2, ind3;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    lz = threadIdx.z,
+	    bx = blockIdx.x,
+	    by = blockIdx.y,
+	    bz = blockIdx.z;
+
+	int diagonal = (bx == by && by == bz);
+
+	if( bx > by || bx > bz ||
+	    ((bx == by || bx == bz) && by > bz) )
+		return;
+
+	x1 = lx + BRICK_SIZE * bx;
+	y1 = ly + BRICK_SIZE * by;
+	z1 = lz + BRICK_SIZE * bz;
+
+	x2 = ly + BRICK_SIZE * bx;
+	y2 = lx + BRICK_SIZE * by;
+	z2 = lz + BRICK_SIZE * bz;
+
+	x3 = lz + BRICK_SIZE * bx;
+	y3 = ly + BRICK_SIZE * by;
+	z3 = lx + BRICK_SIZE * bz;
+
+	ind1 = x1 + (y1 + z1 * np0) * np0;
+	ind2 = y2 + (z2 + x2 * np0) * np0;
+	ind3 = z3 + (x3 + y3 * np0) * np0;
+
+	// Swap lx and ly to avoid the synchronization commented below.
+	if( x1 < np0 && y1 < np0 && z1 < np0 )
+		cube13[ly][lx][lz] = data[ind1];
+	if( x2 < np0 && y2 < np0 && z2 < np0 )
+		if( ! diagonal )
+			cube2[lx][ly][lz] = data[ind2];
+
+	__syncthreads();
+
+	if( diagonal )
+	{
+		if( x1 < np0 && y1 < np0 && z1 < np0 )
+			data[ind1] = cube13[lx][lz][ly];
+	}
+	else
+	{
+		if( x2 < np0 && y2 < np0 && z2 < np0 )
+			data[ind2] = cube13[lx][ly][lz];
+
+		//__syncthreads();
+		if( x3 < np0 && y3 < np0 && z3 < np0 )
+		{
+			cube13[lx][ly][lz] = data[ind3];
+			data[ind3] = cube2[ly][lz][lx];
+		}
+		__syncthreads();
+
+		if( x1 < np0 && y1 < np0 && z1 < np0 )
+			data[ind1] = cube13[lz][ly][lx];
+	}
+}
+
+__global__
+void dev_transpose_201_ept1( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y, z_in,
+	    x_out, z_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	z_in = ly + TILE_SIZE * by;
+
+	y = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	z_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y + z_in * np1) * np0;
+	ind_out = z_out + (x_out + y * np0) * np2;
+
+	if( x_in < np0 && z_in < np2 )
+	{
+		tile[lx][ly] = in[ind_in];
+	}
+
+	__syncthreads();
+
+	if( x_out < np0 && z_out < np2 )
+	{
+		out[ind_out] = tile[ly][lx];
+	}
+}
+
+__global__
+void dev_transpose_201_ept2( data_t*       out,
+                              const data_t* in,
+                              int           np0,
+                              int           np1,
+                              int           np2 )
+{
+__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y, z_in,
+	    x_out, z_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	z_in = ly + TILE_SIZE * by;
+
+	y = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	z_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y + z_in * np1) * np0;
+	ind_out = z_out + (x_out + y * np0) * np2;
+
+	if( x_in < np0 && z_in < np2 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( z_in + 8 < np2 )
+		{
+			tile[lx][ly +  8] = in[ind_in +  8*np0*np1];
+		}
+	}
+
+	__syncthreads();
+
+	if( x_out < np0 && z_out < np2 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 8 < np0 )
+		{
+			out[ind_out +  8*np2] = tile[ly + 8][lx];
+		}
+	}
+}
+
+__global__
+void dev_transpose_201_ept4( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+
+	int x_in, y, z_in,
+	    x_out, z_out,
+	    ind_in,
+	    ind_out;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	z_in = ly + TILE_SIZE * by;
+
+	y = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	z_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y + z_in * np1) * np0;
+	ind_out = z_out + (x_out + y * np0) * np2;
+
+	if( x_in < np0 && z_in < np2 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( z_in + 4 < np2 )
+		{
+			tile[lx][ly +  4] = in[ind_in +  4*np0*np1];
+			if( z_in + 8 < np2 )
+			{
+				tile[lx][ly +  8] = in[ind_in +  8*np0*np1];
+				if( z_in + 12 < np2 )
+				{
+					tile[lx][ly +  12] = in[ind_in +  12*np0*np1];
+				}
+			}
+		}
+	}
+
+	__syncthreads();
+
+	if( x_out < np0 && z_out < np2 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 4 < np0 )
+		{
+			out[ind_out +  4*np2] = tile[ly + 4][lx];
+			if( x_out + 8 < np0 )
+			{
+				out[ind_out +  8*np2] = tile[ly + 8][lx];
+				if( x_out + 12 < np0 )
+				{
+					out[ind_out +  12*np2] = tile[ly + 12][lx];
+				}
+			}
+		}
+	}
+}
+
+__global__
+void dev_transpose_201_in_place( data_t* data,
+                                 int     np0 )
+{
+	__shared__ data_t cube12[BRICK_SIZE][BRICK_SIZE][BRICK_SIZE + 1];
+	__shared__ data_t cube3[BRICK_SIZE][BRICK_SIZE][BRICK_SIZE + 1];
+
+	int x1, y1, z1,
+	    x2, y2, z2,
+	    x3, y3, z3,
+	    ind1, ind2, ind3;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    lz = threadIdx.z,
+	    bx = blockIdx.x,
+	    by = blockIdx.y,
+	    bz = blockIdx.z;
+
+	int diagonal = (bx == by && by == bz);
+
+	if( bx > by || bx > bz ||
+	    ((bx == by || bx == bz) && by > bz) )
+		return;
+
+	x1 = lx + BRICK_SIZE * bx;
+	y1 = ly + BRICK_SIZE * by;
+	z1 = lz + BRICK_SIZE * bz;
+
+	x2 = ly + BRICK_SIZE * bx;
+	y2 = lx + BRICK_SIZE * by;
+	z2 = lz + BRICK_SIZE * bz;
+
+	x3 = lz + BRICK_SIZE * bx;
+	y3 = ly + BRICK_SIZE * by;
+	z3 = lx + BRICK_SIZE * bz;
+
+	ind1 = x1 + (y1 + z1 * np0) * np0;
+	ind2 = y2 + (z2 + x2 * np0) * np0;
+	ind3 = z3 + (x3 + y3 * np0) * np0;
+
+	// Swap lx and lz to avoid the synchronization commented below.
+	if( x1 < np0 && y1 < np0 && z1 < np0 )
+		cube12[lz][ly][lx] = data[ind1];
+	if( x3 < np0 && y3 < np0 && z3 < np0 )
+		if( ! diagonal )
+			cube3[lx][ly][lz] = data[ind3];
+
+	__syncthreads();
+
+	if( diagonal )
+	{
+		if( x1 < np0 && y1 < np0 && z1 < np0 )
+			data[ind1] = cube12[lx][lz][ly];
+	}
+	else
+	{
+		if( x3 < np0 && y3 < np0 && z3 < np0 )
+			data[ind3] = cube12[lx][ly][lz];
+
+		//__syncthreads();
+		if( x2 < np0 && y2 < np0 && z2 < np0 )
+		{
+			cube12[lx][ly][lz] = data[ind2];
+			data[ind2] = cube3[lz][lx][ly];
+		}
+		__syncthreads();
+
+		if( x1 < np0 && y1 < np0 && z1 < np0 )
+			data[ind1] = cube12[ly][lx][lz];
+	}
+}
+
+__global__
+void dev_transpose_210_ept1( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+	
+	int x_in, y, z_in,
+	    x_out, z_out,
+	    ind_in,
+	    ind_out;
+	
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	x_in = lx + TILE_SIZE * bx;
+	z_in = ly + TILE_SIZE * by;
+
+	y = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	z_out = lx + TILE_SIZE * by;
+
+
+	ind_in = x_in + (y + z_in * np1) * np0;
+	ind_out = z_out + (y + x_out * np1) * np2;
+
+	if( x_in < np0 && z_in < np2 )
+	{
+			tile[lx][ly] = in[ind_in];
+	}	
+
+	__syncthreads();
+
+	if( z_out < np2 && x_out < np0 )
+	{
+		out[ind_out] = tile[ly][lx];
+	}
+
+}
+
+__global__
+void dev_transpose_210_ept2( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+	
+	int x_in, y, z_in,
+	    x_out, z_out,
+	    ind_in,
+	    ind_out;
+	
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+		
+	x_in = lx + TILE_SIZE * bx;
+	z_in = ly + TILE_SIZE * by;
+
+	y = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	z_out = lx + TILE_SIZE * by;
+
+	ind_in = x_in + (y + z_in * np1) * np0;
+	ind_out = z_out + (y + x_out * np1) * np2;
+
+	if( x_in < np0 && z_in < np2 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( z_in + 8 < np2 )
+		{
+			tile[lx][ly +  8] = in[ind_in +  8*np0*np1];
+		}
+	}
+	
+	__syncthreads();
+
+	if( z_out < np2 && x_out < np0 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 8 < np0 )
+		{
+			out[ind_out +  8*np2*np1] = tile[ly + 8][lx];
+		}
+	}
+
+}
+
+__global__
+void dev_transpose_210_ept4( data_t*       out,
+                             const data_t* in,
+                             int           np0,
+                             int           np1,
+                             int           np2 )
+{
+
+	__shared__ data_t tile[TILE_SIZE][TILE_SIZE + 1];
+	
+	int x_in, y, z_in,
+	    x_out, z_out,
+	    ind_in,
+	    ind_out;
+	
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+		
+	x_in = lx + TILE_SIZE * bx;
+	z_in = ly + TILE_SIZE * by;
+
+	y = blockIdx.z;
+
+	x_out = ly + TILE_SIZE * bx;
+	z_out = lx + TILE_SIZE * by;
+
+	ind_in = x_in + (y + z_in * np1) * np0;
+	ind_out = z_out + (y + x_out * np1) * np2;
+
+	if( x_in < np0 && z_in < np2 )
+	{
+		tile[lx][ly] = in[ind_in];
+		if( z_in + 4 < np2 )
+		{
+			tile[lx][ly +  4] = in[ind_in +  4*np0*np1];
+			if( z_in + 8 < np2 )
+			{
+				tile[lx][ly +  8] = in[ind_in +  8*np0*np1];
+				if( z_in + 12 < np2 )
+				{
+					tile[lx][ly + 12] = in[ind_in + 12*np0*np1];
+				}
+			}
+		}
+	}
+	
+	__syncthreads();
+	
+	if( z_out < np2 && x_out < np0 )
+	{
+		out[ind_out] = tile[ly][lx];
+		if( x_out + 4 < np0 )
+		{
+			out[ind_out +  4*np2*np1] = tile[ly +  4][lx];
+			if( x_out + 8 < np0 )
+			{
+				out[ind_out +  8*np2*np1] = tile[ly +  8][lx];
+				if( x_out + 12 < np0 )
+				{
+					out[ind_out + 12*np2*np1] = tile[ly + 12][lx];
+				}
+			}
+		}
+	}
+}
+
+__global__
+void dev_transpose_210_in_place( data_t* data,
+                                 int     np0,
+                                 int     np1 )
+{
+	__shared__ data_t inf_tile[TILE_SIZE][TILE_SIZE + 1];
+	__shared__ data_t sup_tile[TILE_SIZE][TILE_SIZE + 1];
+	
+	int x_inf, y, z_inf,
+	    x_sup, z_sup,
+	    ind_inf,
+	    ind_sup;
+
+	int lx = threadIdx.x,
+	    ly = threadIdx.y,
+	    bx = blockIdx.x,
+	    by = blockIdx.y;
+
+	if( bx > by ) // Block in upper triangle
+		return;
+
+	x_inf = lx + TILE_SIZE * bx;
+	z_inf = ly + TILE_SIZE * by;
+	y = blockIdx.z;
+
+	if( x_inf < np0 && z_inf < np0 )
+	{
+		ind_inf = x_inf + (y + z_inf * np1) * np0;
+		inf_tile[lx][ly] = data[ind_inf];
+	}
+
+	x_sup = ly + TILE_SIZE * bx;
+	z_sup = lx + TILE_SIZE * by;
+	if( bx < by ) // Block in lower triangle
+	{
+		if( x_sup < np0 && z_sup < np0 )
+		{
+			ind_sup = z_sup + (y + x_sup * np1) * np0;
+			sup_tile[lx][ly] = data[ind_sup];
+		}
+	}
+	else // Block in diagonal
+		ind_sup = ind_inf;
+
+	__syncthreads();
+
+	if( x_sup < np0 && z_sup < np0 )
+	{
+		data[ind_sup] = inf_tile[ly][lx];
+	}
+
+	if( bx < by )
+	{
+		if( x_inf < np0 && z_inf < np0 )
+		{
+			data[ind_inf] = sup_tile[ly][lx];
+		}
+	}
 }
