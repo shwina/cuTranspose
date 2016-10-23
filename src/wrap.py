@@ -9,10 +9,10 @@ import numpy as np
 with open('transpose3d.cu') as f:
      kernels = f.read()
 mod = compiler.SourceModule(source=kernels, options=["-O2"], arch="sm_35", include_dirs=["/home/atrikut/projects/cuTranspose/src"])
-func = mod.get_function("dev_transpose_021_in_place")
+func = mod.get_function("dev_transpose_210_in_place")
 func.prepare('Pii')
 
-A = np.float32(np.random.rand(3, 3, 3))
+A = np.random.rand(3, 3, 3)
 A_gpu = gpuarray.to_gpu(A)
 
 print(A_gpu)

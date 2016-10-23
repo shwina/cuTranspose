@@ -2,7 +2,7 @@
 #define CUTRANSPOSE_H_
 
 /* #undef USE_COMPLEX */
-#define FLOAT
+#define DOUBLE
 #define TILE_SIZE 16
 #define BRICK_SIZE 8 
 
@@ -18,8 +18,8 @@ extern "C"
 {
 #endif
 
-#ifdef FLOAT
-#define real float
+#ifdef DOUBLE
+#define real double
 #else
 #define real double
 #endif
