@@ -19,20 +19,18 @@
 /********************************************
  * Includes                                 *
  ********************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "cutranspose.h"
 #include "kernels_012.h"
-#include "kernels_021.h"
 #include "kernels_102.h"
+#include "kernels_021.h"
 #include "kernels_120.h"
 #include "kernels_201.h"
 #include "kernels_210.h"
 
-/********************************************
- * Private function prototypes              *
- ********************************************/
 static void set_grid_dims( const int* size,
                            int        d2,
                            dim3*      block_size,
@@ -377,6 +375,9 @@ static int valid_parameters( int        in_place,
 }
 
 
+/********************************************
+ * Public functions                         *
+ ********************************************/
 __global__
 void dev_copy( data_t*       out,
                const data_t* in,
